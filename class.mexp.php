@@ -415,9 +415,7 @@ class Media_Explorer extends MEXP_Plugin {
 	 */
 	public function section_callback( $args ) {
 
-		preg_match( '/(mexp_(\S+))_section/' , $args['id'], $matches );
-
-		if ( isset( $matches[1] ) ) {
+		if ( isset( $args['title'] ) ) {
 			echo sprintf( '<p>Please enter your %s credentials below.</p>', $args['title'] );
 		}
 
