@@ -27,13 +27,15 @@ class Media_Explorer extends MEXP_Plugin {
 	protected function __construct( $file ) {
 
 		# Filters:
-		# (none)
+		add_filter( 'mexp_twitter_credentials', array( $this, 'get_twitter_credentials' ) );
+		add_filter( 'mexp_youtube_developer_key', array( $this, 'get_youtube_credentials' ) );
 
 		# Actions:
 		add_action( 'plugins_loaded',        array( $this, 'action_plugins_loaded' ) );
 		add_action( 'init',                  array( $this, 'action_init' ) );
 		add_action( 'wp_enqueue_media',      array( $this, 'action_enqueue_media' ) );
 		add_action( 'print_media_templates', array( $this, 'action_print_media_templates' ) );
+		add_action( 'admin_init',            array( $this, 'add_settings' ) );
 
 		# AJAX actions:
 		add_action( 'wp_ajax_mexp_request',   array( $this, 'ajax_request' ) );
@@ -225,7 +227,8 @@ class Media_Explorer extends MEXP_Plugin {
 			'mexp',
 			$this->plugin_url( 'js/mexp.js' ),
 			array( 'jquery', 'media-views' ),
-			$this->plugin_ver( 'js/mexp.js' )
+			$this->plugin_ver( 'js/mexp.js' ),
+			true
 		);
 
 		wp_localize_script(
@@ -265,6 +268,10 @@ class Media_Explorer extends MEXP_Plugin {
 		load_plugin_textdomain( 'mexp', false, dirname( $this->plugin_base() ) . '/languages/' );
 
 		foreach ( apply_filters( 'mexp_services', array() ) as $service_id => $service ) {
+			if ( $service_id == 'instagram' ) {
+				continue; // Instagram doesn't work properly at the moment
+			}
+
 			if ( is_a( $service, 'MEXP_Service' ) )
 				$this->services[$service_id] = $service;
 		}
@@ -285,6 +292,215 @@ class Media_Explorer extends MEXP_Plugin {
 			$instance = new Media_Explorer( $file );
 
 		return $instance;
+
+	}
+
+	/**
+	 * Add MEXP settings sections to the Settings -> Media screen
+	 * 
+	 * @return void
+	 */
+	public function add_settings() {
+
+		# YouTube
+		# - Settings
+		
+		register_setting( 
+			'mexp', 
+			'mexp_youtube_api_key', 
+			array( $this, 'sanitize_option' )
+			);
+		
+		# - Section
+		
+		add_settings_section( 
+			'mexp_youtube_section', 
+			'YouTube', 
+			array( $this, 'section_callback' ), 
+			'media' 
+			);
+		
+		# - Fields
+		
+		add_settings_field( 
+			'mexp_youtube_api_key', 
+			'YouTube API Key', 
+			array( $this, 'field_callback' ), 
+			'media', 
+			'mexp_youtube_section', 
+			array( 'mexp_youtube_api_key' ) 
+			);
+
+		# Twitter
+		# - Settings
+
+		register_setting( 
+			'mexp',
+			'mexp_twitter_consumer_key', 
+			array( $this, 'sanitize_option' )
+			);
+
+		register_setting( 
+			'mexp',
+			'mexp_twitter_consumer_secret', 
+			array( $this, 'sanitize_option' )
+			);
+
+		register_setting( 
+			'mexp',
+			'mexp_twitter_oauth_token', 
+			array( $this, 'sanitize_option' )
+			);
+
+		register_setting( 
+			'mexp',
+			'mexp_twitter_oauth_token_secret', 
+			array( $this, 'sanitize_option' )
+			);
+
+		# - Section
+
+		add_settings_section( 
+			'mexp_twitter_section', 
+			'Twitter', 
+			array( $this, 'section_callback' ), 
+			'media' 
+			);
+
+		# - Fields
+
+		add_settings_field( 
+			'mexp_twitter_consumer_key', 
+			'Twitter Consumer Key', 
+			array( $this, 'field_callback' ), 
+			'media', 
+			'mexp_twitter_section',
+			array( 'mexp_twitter_consumer_key' ) 
+			);
+
+		add_settings_field( 
+			'mexp_twitter_consumer_secret', 
+			'Twitter Consumer Secret', 
+			array( $this, 'field_callback' ), 
+			'media', 
+			'mexp_twitter_section',
+			array( 'mexp_twitter_consumer_secret' ) 
+			);
+
+		add_settings_field( 
+			'mexp_twitter_oauth_token', 
+			'Twitter OAuth Token', 
+			array( $this, 'field_callback' ), 
+			'media', 
+			'mexp_twitter_section',
+			array( 'mexp_twitter_oauth_token' ) 
+			);
+
+		add_settings_field( 
+			'mexp_twitter_oauth_token_secret', 
+			'Twitter OAuth Secret', 
+			array( $this, 'field_callback' ), 
+			'media', 
+			'mexp_twitter_section',
+			array( 'mexp_twitter_oauth_token_secret' ) 
+			);
+
+	}
+
+	/**
+	 * Echo the settings fields, along with their nonces with a short blurb at the top
+	 * 
+	 * @param  array $args The callback arguments
+	 * @return void
+	 */
+	public function section_callback( $args ) {
+
+		preg_match( '/(mexp_(\S+))_section/' , $args['id'], $matches );
+
+		if ( isset( $matches[1] ) ) {
+			echo sprintf( '<p>Please enter your %s credentials below.</p>', $args['title'] );
+		}
+
+		settings_fields( 'mexp' );
+
+	}
+
+	/**
+	 * Filter the Twitter credentials. If the fields haven't been set, set them using the
+	 * options from the database. If the options have been set via a filter, then don't 
+	 * change the value.
+	 * 
+	 * @param  array $credentials The current credential array
+	 * @return array              The filtered credential array
+	 */
+	public function get_twitter_credentials( $credentials ) {
+
+		if ( ! is_array( $credentials ) || empty( $credentials ) ) {
+			$credentials = array(
+				'consumer_key'       => '',
+				'consumer_secret'    => '',
+				'oauth_token'        => '',
+				'oauth_token_secret' => ''
+				);
+		}
+
+		foreach ( $credentials as $key => $value ) {
+			if ( ! $value ) {
+				$credentials[ $key ] = get_option( 'mexp_twitter_' . $key, '' );
+			}
+		}
+
+		return $credentials;
+
+	}
+
+	/**
+	 * Filter the YouTube credentials. If the API key has already been set by a filter,
+	 * do nothing. Otherwise, try and get the value from the database.
+	 * 
+	 * @param  string $credentials The original API key
+	 * @return string              The filtered API key
+	 */
+	public function get_youtube_credentials( $credentials ) {
+
+		if ( ! $credentials ) {
+			$credentials = get_option( 'mexp_youtube_api_key', '' );
+		}
+
+		return $credentials;
+
+	}
+
+	/**
+	 * Get the current values and render the settings fields
+	 * 
+	 * @param  array  $args Array of args, first element is the id of 
+	 *                      the field being rendered
+	 * @return void
+	 */
+	public function field_callback( array $args ) {
+
+		$id = isset( $args[0] ) ? $args[0] : false;
+
+		if ( ! $id ) {
+			return;
+		}
+
+		$option = get_option( $id, '' );
+
+		echo sprintf( '<input type="text" id="%s" name="%s" value="%s" />', $id, $id, $option );
+
+	}
+
+	/**
+	 * Sanitize the Media Explorer options submitted in Settings -> Media
+	 * 
+	 * @param  string $value The unsanitized input
+	 * @return string        The sanitized output
+	 */
+	public function sanitize_option( $value ) {
+		
+		return esc_attr( $value );
 
 	}
 
